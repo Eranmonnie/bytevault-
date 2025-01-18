@@ -6,7 +6,8 @@ import (
 	"log"
 )
 
-func OnPeer(p2p.Peer) error {
+func OnPeer(peer p2p.Peer) error {
+	peer.Close()
 	fmt.Println("peer connected")
 	return nil
 }
