@@ -2,34 +2,39 @@ package main
 
 import (
 	"EDFS/p2p"
-	"fmt"
 	"log"
+	"time"
 )
 
-func OnPeer(peer p2p.Peer) error {
-	peer.Close()
-	fmt.Println("peer connected")
-	return nil
-}
+// func OnPeer(peer p2p.Peer) error {
+// 	peer.Close()
+// 	fmt.Println("peer connected")
+// 	return nil
+// }
 
 func main() {
-	tcpOpts := p2p.TCPTransportOpts{
+	tctTransportOpts := p2p.TCPTransportOpts{
 		ListenAddr:    ":3000",
 		HandshakeFunc: p2p.NOPHandshakeFunc,
 		Decoder:       p2p.DefaultDecoder{},
-		OnPeer:        OnPeer,
+		// TODO OnpeerFunc,
 	}
-	tr := p2p.NewTCPTransport(tcpOpts)
+	tcpTransport := p2p.NewTCPTransport(tctTransportOpts)
+
+	fileServerOpts := FileServerOpts{
+		StorageRoot:       "300_network",
+		PathTransformFunc: CASPathTransformFunc,
+		Transport:         *tcpTransport,
+	}
+	s := NewFileServer(fileServerOpts)
+
 	go func() {
-		for {
-			msg := <-tr.Consume()
-			fmt.Printf("msg: %+v\n", msg)
-		}
+		time.Sleep(3 * time.Second)
+		s.Stop()
 	}()
 
-	if err := tr.ListenAndAccept(); err != nil {
+	if err := s.Start(); err != nil {
 		log.Fatal(err)
 	}
-	select {}
-	fmt.Println("testing")
+
 }
