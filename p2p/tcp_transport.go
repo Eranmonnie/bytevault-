@@ -5,27 +5,30 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"sync"
 )
 
 // TCPPeer represents the remote node over a TCP established connection
 type TCPPeer struct {
-	conn net.Conn
+	net.Conn
 
 	// if we  dial and retrieve a conn => outbound = true
 	//  if we accept and retrieve a conn => outbound = false
 	outbound bool
+	WG       *sync.WaitGroup
+}
+
+func (p *TCPPeer) Send(b []byte) error {
+	_, err := p.Conn.Write(b)
+	return err
 }
 
 func NewTCPeer(conn net.Conn, outbound bool) *TCPPeer {
 	return &TCPPeer{
-		conn:     conn,
+		Conn:     conn,
 		outbound: outbound,
+		WG:       &sync.WaitGroup{},
 	}
-}
-
-// close implements the peer interface
-func (p *TCPPeer) Close() error {
-	return p.conn.Close()
 }
 
 type TCPTransportOpts struct {
@@ -49,8 +52,12 @@ func NewTCPTransport(opts TCPTransportOpts) *TCPTransport {
 
 }
 
-// consumen imlements the transport interface
-// which will return a read only channel recieved from another [eer in the network
+// func (t *TCPTransport) ListenAddr() string{
+//   return t.ListenAddr
+// }
+
+// consume imlements the transport interface
+// which will return a read only channel recieved from another peer in the network
 func (t *TCPTransport) Consume() <-chan RPC {
 	return t.rpcch
 }
@@ -58,6 +65,16 @@ func (t *TCPTransport) Consume() <-chan RPC {
 // Close implements the transport interface
 func (t *TCPTransport) Close() error {
 	return t.listener.Close()
+}
+
+// dial implements the transport interface
+func (t *TCPTransport) Dial(addr string) error {
+	conn, err := net.Dial("tcp", addr)
+	if err != nil {
+		return nil
+	}
+	go t.handelConn(conn, true)
+	return nil
 }
 
 func (t *TCPTransport) ListenAndAccept() error {
@@ -78,30 +95,29 @@ func (t *TCPTransport) ListenAndAccept() error {
 func (t *TCPTransport) startAcceptLoop() {
 	for {
 		conn, err := t.listener.Accept()
-		if errors.Is(err, net.ErrClosed){
+		if errors.Is(err, net.ErrClosed) {
 			return
 		}
 		if err != nil {
 			fmt.Printf("TCP accept error: %s\n", err)
-			continue
+			// continue
 		}
-		fmt.Printf(" new incomming connection conn: %+v\n", conn)
 
-		go t.handelConn(conn)
+		go t.handelConn(conn, false)
 	}
 
 }
 
 type Temp struct{}
 
-func (t *TCPTransport) handelConn(conn net.Conn) {
+func (t *TCPTransport) handelConn(conn net.Conn, outbound bool) {
 	var err error
 	defer func() {
 
 		fmt.Printf("TCP close error dropping: %s\n", err)
 		conn.Close()
 	}()
-	peer := NewTCPeer(conn, true)
+	peer := NewTCPeer(conn, outbound)
 
 	if err = t.HandshakeFunc(peer); err != nil {
 		return
@@ -121,7 +137,11 @@ func (t *TCPTransport) handelConn(conn net.Conn) {
 		if err != nil {
 			return
 		}
-		rpc.From = conn.RemoteAddr()
+		rpc.From = conn.RemoteAddr().String()
+		peer.WG.Add(1)
+		fmt.Println("waiting till stream is done")
 		t.rpcch <- rpc
+		peer.WG.Wait()
+		fmt.Println("stream is done, continuing normal read loop ")
 	}
 }

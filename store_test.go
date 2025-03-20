@@ -27,7 +27,7 @@ func TestStore(t *testing.T) {
 		defer tearDown(t, s)
 		key := fmt.Sprintf("test%d", i)
 		data := []byte("testing")
-		if err := s.writeStream(key, bytes.NewReader(data)); err != nil {
+		if _, err := s.writeStream(key, bytes.NewReader(data)); err != nil {
 			t.Error(err)
 		}
 

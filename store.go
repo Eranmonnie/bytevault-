@@ -63,7 +63,7 @@ var DefaultPathTransformFunc = func(key string) PathKey {
 }
 
 type Store struct {
-	StoreOpts StoreOpts
+	StoreOpts
 }
 
 func NewStore(opts StoreOpts) *Store {
@@ -78,28 +78,28 @@ func NewStore(opts StoreOpts) *Store {
 	}
 }
 func (s Store) Has(key string) bool {
-	PathKey := s.StoreOpts.PathTransformFunc(key)
-	fullPathWithRoot := fmt.Sprintf("%s/%s", s.StoreOpts.Root, PathKey.fullPath())
+	PathKey := s.PathTransformFunc(key)
+	fullPathWithRoot := fmt.Sprintf("%s/%s", s.Root, PathKey.fullPath())
 	_, err := os.Stat(fullPathWithRoot)
 	return !errors.Is(err, os.ErrNotExist)
 }
 
 func (s *Store) clear() error {
-	return os.RemoveAll(s.StoreOpts.Root)
+	return os.RemoveAll(s.Root)
 }
 
 func (s *Store) Delete(key string) error {
-	pathKey := s.StoreOpts.PathTransformFunc(key)
+	pathKey := s.PathTransformFunc(key)
 	defer func() {
 		log.Printf("deleted [%s] from disc", pathKey.fileName)
 	}()
 
-	firstPathNameWithRoot := fmt.Sprintf("%s/%s", s.StoreOpts.Root, pathKey.FirstPathName())
+	firstPathNameWithRoot := fmt.Sprintf("%s/%s", s.Root, pathKey.FirstPathName())
 
 	return os.RemoveAll(firstPathNameWithRoot)
 }
 
-func (s *Store) Write(key string, r io.Reader) error {
+func (s *Store) Write(key string, r io.Reader) (int64, error) {
 	return s.writeStream(key, r)
 }
 
@@ -116,32 +116,33 @@ func (s *Store) Read(key string) (io.Reader, error) {
 }
 
 func (s *Store) readStream(key string) (io.ReadCloser, error) {
-	pathKey := s.StoreOpts.PathTransformFunc(key)
-	pathKeyWithRoot := fmt.Sprintf("%s/%s", s.StoreOpts.Root, pathKey.fullPath())
+	pathKey := s.PathTransformFunc(key)
+	pathKeyWithRoot := fmt.Sprintf("%s/%s", s.Root, pathKey.fullPath())
 	return os.Open(pathKeyWithRoot)
 }
 
-func (s *Store) writeStream(key string, r io.Reader) error {
-	pathKey := s.StoreOpts.PathTransformFunc(key)
-	pathNameWithRoot := fmt.Sprintf("%s/%s", s.StoreOpts.Root, pathKey.pathName)
+func (s *Store) writeStream(key string, r io.Reader) (int64, error) {
+	pathKey := s.PathTransformFunc(key)
+	pathNameWithRoot := fmt.Sprintf("%s/%s", s.Root, pathKey.pathName)
 	if err := os.MkdirAll(pathNameWithRoot, os.ModePerm); err != nil {
-		return err
+		return 0, err
 	}
 
-	pathAndFileNameWithRoot := fmt.Sprintf("%s/%s", s.StoreOpts.Root, pathKey.fullPath())
+	pathAndFileNameWithRoot := fmt.Sprintf("%s/%s", s.Root, pathKey.fullPath())
 	f, err := os.Create(pathAndFileNameWithRoot)
 
 	if err != nil {
-		return err
+		return 0, err
 	}
 
 	n, err := io.Copy(f, r)
 	if err != nil {
+		log.Println("error in copy", err)
 		f.Close()
-		return err
+		return 0, err
 	}
 
 	log.Printf("written (%d) bytes to disc : %s", n, pathAndFileNameWithRoot)
 
-	return f.Close()
+	return n, f.Close()
 }
