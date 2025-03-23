@@ -103,22 +103,31 @@ func (s *Store) Write(key string, r io.Reader) (int64, error) {
 	return s.writeStream(key, r)
 }
 
-func (s *Store) Read(key string) (io.Reader, error) {
-	f, err := s.readStream(key)
+func (s *Store) Read(key string) (int64, io.Reader, error) {
+	n, f, err := s.readStream(key)
 	if err != nil {
-		return nil, err
+		return n, nil, err
 	}
 	defer f.Close()
 	buff := new(bytes.Buffer)
 	_, err = io.Copy(buff, f)
 
-	return buff, err
+	return n, buff, err
 }
 
-func (s *Store) readStream(key string) (io.ReadCloser, error) {
+func (s *Store) readStream(key string) (int64, io.ReadCloser, error) {
 	pathKey := s.PathTransformFunc(key)
 	pathKeyWithRoot := fmt.Sprintf("%s/%s", s.Root, pathKey.fullPath())
-	return os.Open(pathKeyWithRoot)
+
+	file, err := os.Open(pathKeyWithRoot)
+	if err != nil {
+		return 0, nil, err
+	}
+	fi, err := file.Stat()
+	if err != nil {
+		return 0, nil, err
+	}
+	return fi.Size(), file, nil
 }
 
 func (s *Store) writeStream(key string, r io.Reader) (int64, error) {

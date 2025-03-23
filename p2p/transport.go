@@ -7,7 +7,7 @@ type Peer interface {
 	net.Conn
 	Send([]byte) error
 	// RemoteAddr() net.Addr
-	// Close() error
+	CloseStream()
 }
 
 // Transport i anything that can handes the communication

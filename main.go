@@ -2,7 +2,8 @@ package main
 
 import (
 	"EDFS/p2p"
-	"bytes"
+	"fmt"
+	"io/ioutil"
 	"log"
 	"strings"
 	"time"
@@ -42,11 +43,25 @@ func main() {
 	go func() { log.Fatal(s2.Start()) }()
 
 	// Wait for servers to initialize
-	time.Sleep(2 * time.Second)
+	time.Sleep(4 * time.Second)
 
-	data := bytes.NewReader([]byte("hello world"))
-	if err := s2.StoreData("key", data); err != nil {
+	// data := bytes.NewReader([]byte("hello world"))
+	// if err := s2.Store("key", data); err != nil {
+	// 	log.Fatal(err)
+	// }
+
+	_, r, err := s2.Get("key")
+
+	if err != nil {
 		log.Fatal(err)
 	}
-	select {}
+
+	b, err := ioutil.ReadAll(r)
+
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	fmt.Println(string(b))
+	// select {}
 }
