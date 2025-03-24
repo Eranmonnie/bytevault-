@@ -12,6 +12,7 @@ import (
 )
 
 type FileServerOpts struct {
+	EncKey            []byte
 	StorageRoot       string
 	PathTransformFunc PathTransformFunc
 	Transport         p2p.Transport
@@ -95,6 +96,12 @@ func (s *FileServer) handelMessageGetFile(from string, msg MessageGetFile) error
 		return err
 	}
 
+	if rc, ok := r.(io.ReadCloser); ok {
+		fmt.Println("closing file reader")
+
+		defer rc.Close()
+	}
+
 	peer, ok := s.peers[from]
 	if !ok {
 		return fmt.Errorf("peer (%s) not found in peer map", from)
@@ -118,9 +125,12 @@ func (s *FileServer) handelMessageStoreFile(from string, msg MessageStoreFile) e
 		return fmt.Errorf("peer (%s) not found in peer map", from)
 	}
 
+	log.Printf("Starting to read %d bytes from peer %s", msg.Size, from)
+
 	if _, err := s.store.Write(msg.Key, io.LimitReader(peer, msg.Size)); err != nil {
 		return err
 	}
+	// log.Printf("stored data from peer %s", from)
 
 	peer.CloseStream()
 
@@ -273,7 +283,7 @@ func (s *FileServer) Store(key string, r io.Reader) error {
 	msg := Message{
 		Payload: MessageStoreFile{
 			Key:  key,
-			Size: size,
+			Size: size + 16,
 		},
 	}
 
@@ -294,12 +304,18 @@ func (s *FileServer) Store(key string, r io.Reader) error {
 	// Now send the actual file data to each peer
 	for addr, peer := range s.peers {
 		peer.Send([]byte{p2p.IncomingStream})
-		n, err := io.Copy(peer, fileBuf)
+		n, err := copyEncrypt(s.EncKey, fileBuf, peer)
 		if err != nil {
 			log.Printf("Failed to send file data to peer %s: %v", addr, err)
 			delete(s.peers, addr)
 			continue
 		}
+		// n, err := io.Copy(peer, fileBuf)
+		// if err != nil {
+		// 	log.Printf("Failed to send file data to peer %s: %v", addr, err)
+		// 	delete(s.peers, addr)
+		// 	continue
+		// }
 		log.Printf("Successfully sent %d bytes to peer %s", n, addr)
 	}
 

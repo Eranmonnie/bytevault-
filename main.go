@@ -2,8 +2,7 @@ package main
 
 import (
 	"EDFS/p2p"
-	"fmt"
-	"io/ioutil"
+	"bytes"
 	"log"
 	"strings"
 	"time"
@@ -24,6 +23,7 @@ func makeServer(ListenAddr string, nodes ...string) *FileServer {
 	tcpTransport := p2p.NewTCPTransport(tcpTransportOpts)
 
 	fileServerOpts := FileServerOpts{
+		EncKey:            newEncryptionKey(),
 		StorageRoot:       strings.TrimPrefix(ListenAddr, ":") + "_network",
 		Transport:         tcpTransport,
 		BootStrapNodes:    nodes,
@@ -45,23 +45,23 @@ func main() {
 	// Wait for servers to initialize
 	time.Sleep(4 * time.Second)
 
-	// data := bytes.NewReader([]byte("hello world"))
-	// if err := s2.Store("key", data); err != nil {
+	data := bytes.NewReader([]byte("hello world"))
+	if err := s2.Store("key", data); err != nil {
+		log.Fatal(err)
+	}
+
+	// _, r, err := s2.Get("key")
+
+	// if err != nil {
 	// 	log.Fatal(err)
 	// }
 
-	_, r, err := s2.Get("key")
+	// b, err := ioutil.ReadAll(r)
 
-	if err != nil {
-		log.Fatal(err)
-	}
+	// if err != nil {
+	// 	log.Fatal(err)
+	// }
 
-	b, err := ioutil.ReadAll(r)
-
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	fmt.Println(string(b))
-	// select {}
+	// fmt.Println(string(b))
+	select {}
 }
