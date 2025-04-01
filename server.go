@@ -9,6 +9,7 @@ import (
 	"io"
 	"log"
 	"sync"
+	"time"
 )
 
 type FileServerOpts struct {
@@ -188,17 +189,12 @@ func (s *FileServer) Get(key string) (int64, io.Reader, error) {
 		var fileSize int64
 		binary.Read(peer, binary.LittleEndian, &fileSize)
 		fmt.Println("file size ", fileSize)
-		n, err := s.store.Write(key, io.LimitReader(peer, fileSize))
+		n, err := s.store.WriteDecrypt(s.EncKey,key, io.LimitReader(peer, fileSize))
 
 		if err != nil {
 			return 0, nil, err
 		}
 
-		// fileBuf := new(bytes.Buffer)
-		// n, err := io.CopyN(fileBuf, peer, 22)
-		// if err != nil {
-		// 	continue
-		// }
 		fmt.Printf("recieved (%d) bytes over the network from %s", n, peer.RemoteAddr())
 		peer.CloseStream()
 	}
@@ -300,6 +296,7 @@ func (s *FileServer) Store(key string, r io.Reader) error {
 	if err := s.broadcast(&msg); err != nil {
 		return err
 	}
+	time.Sleep(time.Millisecond * 5)
 
 	// Now send the actual file data to each peer
 	for addr, peer := range s.peers {

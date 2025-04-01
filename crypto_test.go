@@ -26,8 +26,8 @@ func TestCopyEcrypt(t *testing.T) {
 
 func TestCopyDecrypt(t *testing.T) {
 
-	paylpoad := "test"
-	src := bytes.NewReader([]byte(paylpoad))
+	payload := "test"
+	src := bytes.NewReader([]byte(payload))
 	dst := new(bytes.Buffer)
 	key := newEncryptionKey()
 	_, err := copyEncrypt(key, src, dst)
@@ -41,7 +41,7 @@ func TestCopyDecrypt(t *testing.T) {
 		t.Error(err)
 	}
 
-	if out.String() != paylpoad {
+	if out.String() != payload {
 		t.Error("Expected decrypted data to be equal to the original data")
 	}
 }

@@ -20,7 +20,7 @@ func copyEncrypt(key []byte, src io.Reader, dst io.Writer) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	iv := make([]byte, block.BlockSize()) //16 byyes
+	iv := make([]byte, block.BlockSize()) //16 bytes
 	if _, err := io.ReadFull(rand.Reader, iv); err != nil {
 		return 0, err
 	}
