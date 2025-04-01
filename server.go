@@ -13,6 +13,7 @@ import (
 )
 
 type FileServerOpts struct {
+	ID                string
 	EncKey            []byte
 	StorageRoot       string
 	PathTransformFunc PathTransformFunc
@@ -32,6 +33,9 @@ func NewFileServer(opts FileServerOpts) *FileServer {
 	storeOpts := StoreOpts{
 		Root:              opts.StorageRoot,
 		PathTransformFunc: opts.PathTransformFunc,
+	}
+	if len(opts.ID) == 0 {
+		opts.ID = generateID()
 	}
 	return &FileServer{
 		FileServerOpts: opts,
@@ -87,12 +91,12 @@ func (s *FileServer) handleMessage(from string, msg *Message) error {
 }
 
 func (s *FileServer) handelMessageGetFile(from string, msg MessageGetFile) error {
-	if !s.store.Has(msg.Key) {
+	if !s.store.Has(msg.ID, msg.Key) {
 		return fmt.Errorf("file (%s) not found in local store", msg.Key)
 	}
 
 	fmt.Printf("got file (%s) requested by peer %s serving over the network \n", msg.Key, from)
-	fileSize, r, err := s.store.Read(msg.Key)
+	fileSize, r, err := s.store.Read(msg.ID, msg.Key)
 	if err != nil {
 		return err
 	}
@@ -128,7 +132,7 @@ func (s *FileServer) handelMessageStoreFile(from string, msg MessageStoreFile) e
 
 	log.Printf("Starting to read %d bytes from peer %s", msg.Size, from)
 
-	if _, err := s.store.Write(msg.Key, io.LimitReader(peer, msg.Size)); err != nil {
+	if _, err := s.store.Write(msg.ID, msg.Key, io.LimitReader(peer, msg.Size)); err != nil {
 		return err
 	}
 	// log.Printf("stored data from peer %s", from)
@@ -150,11 +154,13 @@ type Message struct {
 // }
 
 type MessageStoreFile struct {
+	ID   string
 	Key  string
 	Size int64
 }
 
 type MessageGetFile struct {
+	ID  string
 	Key string
 }
 
@@ -163,14 +169,15 @@ type MessageRemoveFile struct {
 }
 
 func (s *FileServer) Get(key string) (int64, io.Reader, error) {
-	if s.store.Has(key) {
-		return s.store.Read(key)
+	if s.store.Has(s.ID, key) {
+		return s.store.Read(s.ID, key)
 	}
 
 	fmt.Printf("[%s]: file (%s) not found in local store, requesting from peers\n", s.Transport.Addr(), key)
 	msg := Message{
 		Payload: MessageGetFile{
-			Key: key,
+			ID:  s.ID,
+			Key: hashKey(key),
 		},
 	}
 
@@ -189,7 +196,7 @@ func (s *FileServer) Get(key string) (int64, io.Reader, error) {
 		var fileSize int64
 		binary.Read(peer, binary.LittleEndian, &fileSize)
 		fmt.Println("file size ", fileSize)
-		n, err := s.store.WriteDecrypt(s.EncKey, key, io.LimitReader(peer, fileSize))
+		n, err := s.store.WriteDecrypt(s.EncKey, s.ID, key, io.LimitReader(peer, fileSize))
 
 		if err != nil {
 			return 0, nil, err
@@ -200,11 +207,11 @@ func (s *FileServer) Get(key string) (int64, io.Reader, error) {
 	}
 
 	// select {}
-	return s.store.Read(key)
+	return s.store.Read(s.ID, key)
 }
 
 func (s *FileServer) Remove(key string) error {
-	if err := s.store.Delete(key); err != nil {
+	if err := s.store.Delete(s.ID, key); err != nil {
 		return err
 	}
 
@@ -215,36 +222,6 @@ func (s *FileServer) Remove(key string) error {
 	}
 
 	return s.broadcast(&msg)
-}
-
-func (s *FileServer) stream(msg *Message) error {
-	var lastErr error
-	s.peerLock.Lock()
-	defer s.peerLock.Unlock()
-
-	if len(s.peers) == 0 {
-		return nil
-	}
-
-	for addr, peer := range s.peers {
-		buf := new(bytes.Buffer)
-		if err := gob.NewEncoder(buf).Encode(msg); err != nil {
-			log.Printf("Failed to encode payload for peer %s: %v", addr, err)
-			lastErr = err
-			continue
-		}
-
-		if err := peer.Send(buf.Bytes()); err != nil {
-			log.Printf("Failed to send to peer %s: %v", addr, err)
-			lastErr = err
-			//  remove the peer if it's unreachable
-			delete(s.peers, addr)
-			continue
-		}
-		log.Printf("Successfully broadcast to peer %s", addr)
-	}
-
-	return lastErr
 }
 
 func (s *FileServer) broadcast(msg *Message) error {
@@ -268,7 +245,7 @@ func (s *FileServer) Store(key string, r io.Reader) error {
 	tee := io.TeeReader(r, fileBuf)
 
 	// Write to local store first
-	size, err := s.store.Write(key, tee)
+	size, err := s.store.Write(s.ID, key, tee)
 	if err != nil {
 		return err
 	}
@@ -278,7 +255,8 @@ func (s *FileServer) Store(key string, r io.Reader) error {
 	// Create control message
 	msg := Message{
 		Payload: MessageStoreFile{
-			Key:  key,
+			ID:   s.ID,
+			Key:  hashKey(key),
 			Size: size + 16,
 		},
 	}
@@ -322,9 +300,13 @@ func (s *FileServer) Stop() {
 func (s *FileServer) bootstrapNetwork() error {
 
 	for _, addr := range s.BootStrapNodes {
+		if len(addr) == 0 {
+			continue
+		}
 		go func(addr string) {
+			fmt.Printf("[%s]: Attempting to connect with node %s\n", s.Transport.Addr(), addr)
 			if err := s.Transport.Dial(addr); err != nil {
-				log.Println("Dail error: ", err)
+				log.Printf("[%s]: Error connecting to node %s: %v \n", s.Transport.Addr(), addr, err)
 			}
 		}(addr)
 	}

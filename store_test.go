@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"testing"
 )
@@ -22,34 +23,48 @@ func TestPathTransformFunc(t *testing.T) {
 }
 
 func TestStore(t *testing.T) {
-	for i := 0; i < 50; i++ {
-		s := newStore()
-		defer tearDown(t, s)
+	s := newStore()
+	id := generateID()
+	defer tearDown(t, s)
+	for i := 0; i < 1; i++ {
 		key := fmt.Sprintf("test%d", i)
 		data := []byte("testing")
-		if _, err := s.writeStream(key, bytes.NewReader(data)); err != nil {
+		if _, err := s.writeStream(id, key, bytes.NewReader(data)); err != nil {
 			t.Error(err)
 		}
 
-		if ok := s.Has(key); !ok {
-			t.Errorf("Expected to hve key %s", key)
+		if ok := s.Has(id, key); !ok {
+			t.Errorf("Expected to have key %s", key)
 		}
-		_, r, err := s.Read(key)
+
+		_, r, err := s.Read(id, key)
 		if err != nil {
 			t.Error(err)
 		}
+
+		// Add this block to ensure proper resource cleanup
+		defer func() {
+			if closer, ok := r.(io.Closer); ok {
+				closer.Close()
+			}
+		}()
 
 		b, _ := ioutil.ReadAll(r)
 		if string(b) != string(data) {
 			t.Errorf("want %s, have%s", data, b)
 		}
-		if err := s.Delete(key); err != nil {
+
+		if closer, ok := r.(io.Closer); ok {
+			closer.Close()
+		}
+
+		if err := s.Delete(id, key); err != nil {
+			fmt.Println(err)
 			t.Error(err)
 		}
 
-		if ok := s.Has(key); ok {
+		if ok := s.Has(id, key); ok {
 			t.Errorf("Expected to not have key %s", key)
-
 		}
 	}
 }

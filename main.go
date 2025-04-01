@@ -44,7 +44,6 @@ func main() {
 	go func() { log.Fatal(s1.Start()) }()
 	go func() { log.Fatal(s2.Start()) }()
 
-	// Wait for servers to initialize
 	time.Sleep(4 * time.Second)
 	key := "key.jpg"
 	data := bytes.NewReader([]byte("hello world"))
@@ -52,7 +51,7 @@ func main() {
 		log.Fatal(err)
 	}
 
-	if err := s2.store.Delete(key); err != nil {
+	if err := s2.store.Delete(s2.ID, key); err != nil {
 		log.Fatal(err)
 	}
 
@@ -69,5 +68,5 @@ func main() {
 	}
 
 	fmt.Println(string(b))
-	select {}
+	// select {}
 }

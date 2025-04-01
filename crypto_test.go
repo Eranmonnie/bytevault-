@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-func testNewEncryptionKey(t *testing.T) {
+func TestNewEncryptionKey(t *testing.T) {
 	key := newEncryptionKey()
 	if len(key) != 32 {
 		t.Error("Expected key length of 32")
