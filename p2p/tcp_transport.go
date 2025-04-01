@@ -66,6 +66,11 @@ func (t *TCPTransport) Consume() <-chan RPC {
 	return t.rpcch
 }
 
+// Addr implements the transport interface
+func (t *TCPTransport) Addr() string {
+	return t.ListenAddr
+}
+
 // Close implements the transport interface
 func (t *TCPTransport) Close() error {
 	return t.listener.Close()

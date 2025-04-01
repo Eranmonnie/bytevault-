@@ -98,8 +98,57 @@ func (s *Store) Delete(key string) error {
 	return os.RemoveAll(firstPathNameWithRoot)
 }
 
+func (s *Store) openFile(key string) (*os.File, error) {
+	pathKey := s.PathTransformFunc(key)
+	pathNameWithRoot := fmt.Sprintf("%s/%s", s.Root, pathKey.pathName)
+	if err := os.MkdirAll(pathNameWithRoot, os.ModePerm); err != nil {
+		return nil, err
+	}
+
+	pathAndFileNameWithRoot := fmt.Sprintf("%s/%s", s.Root, pathKey.fullPath())
+	return os.Create(pathAndFileNameWithRoot)
+}
+
 func (s *Store) Write(key string, r io.Reader) (int64, error) {
 	return s.writeStream(key, r)
+}
+
+func (s *Store) WriteDecrypt(encKey []byte, key string, r io.Reader) (int64, error) {
+
+	f, err := s.openFile(key)
+	if err != nil {
+		return 0, err
+	}
+
+	n, err := copyDecrypt(encKey, r, f)
+	if err != nil {
+		log.Println("error in copy", err)
+		f.Close()
+		return 0, err
+	}
+
+	log.Printf("written (%d) bytes to disc : %s", n, f.Name())
+
+	return int64(n), f.Close()
+
+}
+
+func (s *Store) writeStream(key string, r io.Reader) (int64, error) {
+	f, err := s.openFile(key)
+	if err != nil {
+		return 0, err
+	}
+
+	n, err := io.Copy(f, r)
+	if err != nil {
+		log.Println("error in copy", err)
+		f.Close()
+		return 0, err
+	}
+
+	log.Printf("written (%d) bytes to disc : %s", n, f.Name())
+
+	return n, f.Close()
 }
 
 func (s *Store) Read(key string) (int64, io.Reader, error) {
@@ -119,58 +168,4 @@ func (s *Store) readStream(key string) (int64, io.ReadCloser, error) {
 		return 0, nil, err
 	}
 	return fi.Size(), file, nil
-}
-
-func (s *Store) WriteDecrypt(encKey []byte, key string, r io.Reader) (int64, error) {
-
-	pathKey := s.PathTransformFunc(key)
-	pathNameWithRoot := fmt.Sprintf("%s/%s", s.Root, pathKey.pathName)
-	if err := os.MkdirAll(pathNameWithRoot, os.ModePerm); err != nil {
-		return 0, err
-	}
-
-	pathAndFileNameWithRoot := fmt.Sprintf("%s/%s", s.Root, pathKey.fullPath())
-	f, err := os.Create(pathAndFileNameWithRoot)
-
-	if err != nil {
-		return 0, err
-	}
-
-	n, err := copyDecrypt(encKey, r, f)
-	if err != nil {
-		log.Println("error in copy", err)
-		f.Close()
-		return 0, err
-	}
-
-	log.Printf("written (%d) bytes to disc : %s", n, pathAndFileNameWithRoot)
-
-	return int64(n), f.Close()
-
-}
-
-func (s *Store) writeStream(key string, r io.Reader) (int64, error) {
-	pathKey := s.PathTransformFunc(key)
-	pathNameWithRoot := fmt.Sprintf("%s/%s", s.Root, pathKey.pathName)
-	if err := os.MkdirAll(pathNameWithRoot, os.ModePerm); err != nil {
-		return 0, err
-	}
-
-	pathAndFileNameWithRoot := fmt.Sprintf("%s/%s", s.Root, pathKey.fullPath())
-	f, err := os.Create(pathAndFileNameWithRoot)
-
-	if err != nil {
-		return 0, err
-	}
-
-	n, err := io.Copy(f, r)
-	if err != nil {
-		log.Println("error in copy", err)
-		f.Close()
-		return 0, err
-	}
-
-	log.Printf("written (%d) bytes to disc : %s", n, pathAndFileNameWithRoot)
-
-	return n, f.Close()
 }

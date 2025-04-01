@@ -167,7 +167,7 @@ func (s *FileServer) Get(key string) (int64, io.Reader, error) {
 		return s.store.Read(key)
 	}
 
-	fmt.Printf("dont have file (%s) locally. Fetching from network... \n", key)
+	fmt.Printf("[%s]: file (%s) not found in local store, requesting from peers\n", s.Transport.Addr(), key)
 	msg := Message{
 		Payload: MessageGetFile{
 			Key: key,
@@ -189,13 +189,13 @@ func (s *FileServer) Get(key string) (int64, io.Reader, error) {
 		var fileSize int64
 		binary.Read(peer, binary.LittleEndian, &fileSize)
 		fmt.Println("file size ", fileSize)
-		n, err := s.store.WriteDecrypt(s.EncKey,key, io.LimitReader(peer, fileSize))
+		n, err := s.store.WriteDecrypt(s.EncKey, key, io.LimitReader(peer, fileSize))
 
 		if err != nil {
 			return 0, nil, err
 		}
 
-		fmt.Printf("recieved (%d) bytes over the network from %s", n, peer.RemoteAddr())
+		fmt.Printf("[%s]: file (%s) of size (%d) received from peer %s\n", s.Transport.Addr(), key, n, peer.RemoteAddr())
 		peer.CloseStream()
 	}
 
@@ -298,23 +298,19 @@ func (s *FileServer) Store(key string, r io.Reader) error {
 	}
 	time.Sleep(time.Millisecond * 5)
 
-	// Now send the actual file data to each peer
-	for addr, peer := range s.peers {
-		peer.Send([]byte{p2p.IncomingStream})
-		n, err := copyEncrypt(s.EncKey, fileBuf, peer)
-		if err != nil {
-			log.Printf("Failed to send file data to peer %s: %v", addr, err)
-			delete(s.peers, addr)
-			continue
-		}
-		// n, err := io.Copy(peer, fileBuf)
-		// if err != nil {
-		// 	log.Printf("Failed to send file data to peer %s: %v", addr, err)
-		// 	delete(s.peers, addr)
-		// 	continue
-		// }
-		log.Printf("Successfully sent %d bytes to peer %s", n, addr)
+	peers := []io.Writer{}
+	for _, peer := range s.peers {
+		peers = append(peers, peer)
 	}
+
+	mw := io.MultiWriter(peers...)
+	mw.Write([]byte{p2p.IncomingStream})
+	n, err := copyEncrypt(s.EncKey, fileBuf, mw)
+	if err != nil {
+		log.Printf("[%s]:Failed to send file data to peers: %v", s.Transport.Addr(), err)
+	}
+
+	log.Printf("[%s]:Sent file data to peers: %d bytes", s.Transport.Addr(), n)
 
 	return nil
 }
@@ -326,10 +322,6 @@ func (s *FileServer) Stop() {
 func (s *FileServer) bootstrapNetwork() error {
 
 	for _, addr := range s.BootStrapNodes {
-		// if len(addr) == 0 {
-		// 	continue
-		// }
-		// fmt.Println("bootstrap")
 		go func(addr string) {
 			if err := s.Transport.Dial(addr); err != nil {
 				log.Println("Dail error: ", err)
