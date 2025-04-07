@@ -37,11 +37,33 @@ func makeServer(ListenAddr string, nodes ...string) *FileServer {
 	return s
 }
 
+func makeWSServer(ListenAddr string, nodes ...string) *FileServer {
+	WSTransportOpts := p2p.WebSocketTransportOpts{
+		ListenAddr:    ListenAddr,
+		HandshakeFunc: p2p.NOPHandshakeFunc,
+		Decoder:       p2p.WSDecoder{},
+	}
+	WSTransport := p2p.NewWebSocketTransport(WSTransportOpts)
+
+	fileServerOpts := FileServerOpts{
+		EncKey:            newEncryptionKey(),
+		StorageRoot:       strings.TrimPrefix(ListenAddr, ":") + "_network",
+		Transport:         WSTransport,
+		BootStrapNodes:    nodes,
+		PathTransformFunc: CASPathTransformFunc,
+	}
+	s := NewFileServer(fileServerOpts)
+
+	WSTransport.OnPeer = s.OnPeer
+	return s
+}
+
 func main() {
 
 	s1 := makeServer(":3000", "")
 	s2 := makeServer(":4000", ":3000")
 	go func() { log.Fatal(s1.Start()) }()
+	time.Sleep(500 * time.Millisecond)
 	go func() { log.Fatal(s2.Start()) }()
 
 	time.Sleep(4 * time.Second)
@@ -50,6 +72,7 @@ func main() {
 	if err := s2.Store(key, data); err != nil {
 		log.Fatal(err)
 	}
+	time.Sleep(500 * time.Millisecond)
 
 	if err := s2.store.Delete(s2.ID, key); err != nil {
 		log.Fatal(err)

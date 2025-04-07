@@ -50,7 +50,7 @@ func (s *FileServer) OnPeer(p p2p.Peer) error {
 	defer s.peerLock.Unlock()
 	s.peers[p.RemoteAddr().String()] = p
 
-	log.Printf("connected with remote %s", p.RemoteAddr())
+	log.Printf("[%s]: connected with remote %s", s.Transport.Addr(), p.RemoteAddr())
 	return nil
 }
 
@@ -63,6 +63,10 @@ func (s *FileServer) loop() {
 	for {
 		select {
 		case rpc := <-s.Transport.Consume():
+			if rpc.Payload == nil {
+				log.Println("Received nil payload, skipping")
+				continue
+			}
 			var msg Message
 			if err := gob.NewDecoder(bytes.NewReader(rpc.Payload)).Decode(&msg); err != nil {
 				log.Println("decoding error:", err)
@@ -73,6 +77,7 @@ func (s *FileServer) loop() {
 			}
 
 		case <-s.quitch:
+			fmt.Println("FileServer loop quitch signal received")
 			return
 		}
 	}
@@ -130,7 +135,7 @@ func (s *FileServer) handelMessageStoreFile(from string, msg MessageStoreFile) e
 		return fmt.Errorf("peer (%s) not found in peer map", from)
 	}
 
-	log.Printf("Starting to read %d bytes from peer %s", msg.Size, from)
+	log.Printf("[%s]: Starting to read %d bytes from peer %s", s.Transport.Addr(), msg.Size, from)
 
 	if _, err := s.store.Write(msg.ID, msg.Key, io.LimitReader(peer, msg.Size)); err != nil {
 		return err
@@ -261,11 +266,9 @@ func (s *FileServer) Store(key string, r io.Reader) error {
 		},
 	}
 
-	// Lock peers map before accessing
 	s.peerLock.Lock()
 	defer s.peerLock.Unlock()
 
-	// Skip if no peers
 	if len(s.peers) == 0 {
 		return nil
 	}
@@ -276,20 +279,39 @@ func (s *FileServer) Store(key string, r io.Reader) error {
 	}
 	time.Sleep(time.Millisecond * 5)
 
-	peers := []io.Writer{}
-	for _, peer := range s.peers {
-		peers = append(peers, peer)
-	}
-
-	mw := io.MultiWriter(peers...)
-	mw.Write([]byte{p2p.IncomingStream})
-	n, err := copyEncrypt(s.EncKey, fileBuf, mw)
+	buff := new(bytes.Buffer)
+	_, err = copyEncrypt(s.EncKey, fileBuf, buff)
 	if err != nil {
-		log.Printf("[%s]:Failed to send file data to peers: %v", s.Transport.Addr(), err)
+		return fmt.Errorf("encryption error: %w", err)
 	}
 
-	log.Printf("[%s]:Sent file data to peers: %d bytes", s.Transport.Addr(), n)
+	for addr, peer := range s.peers {
+		if err := peer.Send([]byte{p2p.IncomingStream}); err != nil {
+			log.Printf("[%s]: Failed to send stream indicator to peer %s: %v",
+				s.Transport.Addr(), addr, err)
+			continue
+		}
 
+		if err := peer.Send(buff.Bytes()); err != nil {
+			log.Printf("[%s]: Failed to send file data to peer %s: %v",
+				s.Transport.Addr(), addr, err)
+			continue
+		}
+	}
+
+	// peers := []io.Writer{}
+	// for _, peer := range s.peers {
+	// 	peers = append(peers, peer)
+	// }
+	// mw := io.MultiWriter(peers...)
+	// mw.Write([]byte{p2p.IncomingStream})
+	// n, err := copyEncrypt(s.EncKey, fileBuf, mw)
+	// if err != nil {
+	// 	log.Printf("[%s]:Failed to send file data to peers: %v", s.Transport.Addr(), err)
+	// }
+
+	log.Printf("[%s]: Sent file data to peers (%d bytes)",
+		s.Transport.Addr(), len(buff.Bytes()))
 	return nil
 }
 
